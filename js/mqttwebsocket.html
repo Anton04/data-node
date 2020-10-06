@@ -1,0 +1,33 @@
+<html>
+
+<head>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js" type="text/javascript"></script>
+<script src="./mqtt.mjs" type="text/javascript"></script>
+
+</head>
+<body>
+
+<script type="text/javascript">
+
+// called when a message arrives
+function onMessageArrived(message) {
+  console.log("****************")
+  console.log("onMessageArrived:"+message.value);
+}
+
+
+//import { DataHub } from "./mqtt.mjs";
+//var datahub = new DataHub();
+client = datahub.subscribe("ws://op-en.se:9001/test/nodes/test/a2.value",onMessageArrived)
+
+datahub.subscribe("ws://op-en.se:9001/test/signalA.power",onMessageArrived)
+
+
+
+</script>
+
+
+
+</body>
+
+</html>
