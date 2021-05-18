@@ -11,7 +11,7 @@
 
 // called when a message arrives
 function onMessageArrived(message) {
-  console.log("****************")
+  console.log("*************  " + message.topic)
   console.log("onMessageArrived:"+message.value);
 }
 
@@ -21,6 +21,8 @@ function onMessageArrived(message) {
 client = datahub.subscribe("ws://op-en.se:9001/test/nodes/test/a2.value",onMessageArrived)
 
 datahub.subscribe("ws://op-en.se:9001/test/signalA.power",onMessageArrived)
+
+datahub.subscribe("ws://mqtt.op-en.se:9001/test/signalA.time",onMessageArrived)
 
 
 
