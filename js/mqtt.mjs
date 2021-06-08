@@ -1,19 +1,51 @@
 
+// changed 2021-05-20
 
 class Broker extends Paho.MQTT.Client {
   constructor(origin="ws://op-en.se:9001",clientId = getUUID()) {
 
-    var url = new URL(origin);
-    super(url.hostname, Number(url.port), clientId);
+
+
+    var url = MyURL(origin);
+
+
+    var port = url.port
+
+    //console.log("Proto:  " + url.protocol);
+    //console.log("Port: " + port + "<");
+
+    if (port == "") {
+      if (url.protocol=="wss:") {
+         port = 443
+       }
+      else {
+         port = 80
+      }
+    }
+
+
+    //console.log("Port: " + port + "<");
+
+    super(url.hostname, Number(port), clientId);
     this.subscribers = {};
     this.origin = origin;
     var self = this;
 
+
+
     // set callback handlers
-    function onConnectionLost(responseObject) {
+    this.onConnectionLost = function (responseObject) {
       if (responseObject.errorCode !== 0) {
 
-        console.log("onConnectionLostMethod:"+responseObject.errorMessage);
+        console.log("Connection lost: "+responseObject.errorMessage);
+
+        this.connect({onSuccess:function () {
+          self.onConnectHandler();
+        }, useSSL:url.protocol=="wss:",reconnect :true});
+
+
+
+
       }
     }
     //this.onConnectionLost = onConnectionLost;
@@ -28,7 +60,7 @@ class Broker extends Paho.MQTT.Client {
 
     this.connect({onSuccess:function () {
       self.onConnectHandler();
-    }});
+    }, useSSL:url.protocol=="wss:"});
 
     // connect the client
     //self.connect({onSuccess:onConnect});
@@ -75,7 +107,7 @@ class Broker extends Paho.MQTT.Client {
 
   onConnectHandler() {
     // Once a connection has been made, make a subscription and send a message.
-    console.log("onConnect method");
+    console.log("Connected to: " + this.origin);
     //console.log("test/clients/" + this.clientId + "/connected");
     //this.subscribe("test/signalA");
 
@@ -100,13 +132,12 @@ class Broker extends Paho.MQTT.Client {
     //console.log(url);
     if (!(topic in this.subscribers))
     {
-        console.log("New topic");
-        console.log(url.topic);
+        console.log("New topic: " + url.topic);
         this.subscribers[url.topic]=[{"target":target,"subproperty":url.subproperty}];
     }
     else {
         console.log("Existing topic");
-        this.subscribers[url.topic].append({"target":target,"subproperty":url.subproperty});
+        this.subscribers[url.topic].push({"target":target,"subproperty":url.subproperty});
     }
 
     if (this.isConnected()){
@@ -117,20 +148,72 @@ class Broker extends Paho.MQTT.Client {
 
   }
 
+  unsubscribe2(topic,target) {
+    if (!(topic in this.subscribers))
+    {
+        return;
+    }
+
+    var url = this.parseTopic(topic);
+
+    for (var i = this.subscribers[url.topic].length - 1; i >= 0; i--) {
+
+      if (this.subscribers[url.topic][i].target == target) {
+          this.subscribers[url.topic].splice(i, 1);
+          break;
+      }
+
+    }
+
+    if (this.subscribers[url.topic].length == 0)
+    {
+      this.unsubscribe(url.pathname.substring(1))
+      delete this.subscribers[url.topic]
+    }
+
+
+
+
+  }
+
+  publish2(topic,payload,retain=false){
+    var url = this.parseTopic(topic);
+    //this.publish(url.topic,payload,1,retain)
+
+    console.log("Publishing to: " + url.pathname.substring(1));
+
+    var message = new Paho.MQTT.Message(payload);
+    message.destinationName = url.pathname.substring(1);
+    message.retained = retain;
+    //message.disconnectedPublishing = true;
+    this.send(message);
+  }
+
+
 
 
   parseTopic(topic) {
-    var url = new URL(topic);
-    var path = url.pathname.split(".");
+
+    var mqtt = false;
+
+    var url = MyURL(topic);
+
+
+    var path = url.pathname.split("[");
     url.pathname = path[0];
     if (path.length < 2){
       url.subproperty = "";
     }
     else {
-      url.subproperty = path[1];
+      url.subproperty = path[1].split("]")[0];
     }
 
-    url.topic = url.origin + url.pathname;
+    if (mqtt){
+      url.topic = url.origin.replace("wss://","mqtt://") + url.pathname;
+    }
+    else {
+      url.topic = url.origin + url.pathname;
+    }
 
     return url;
 
@@ -154,8 +237,50 @@ class DataHub {
         this.brokers = {};
     }
 
-    subscribe(topic,target) {
-      var url = new URL(topic);
+    subscribe(topic,target=LogMessage) {
+
+
+      var url = MyURL(topic);
+      //console.log("url");
+      //console.log(topic);
+      //console.log(url);
+
+
+
+
+      if (!(url.origin in this.brokers))
+      {
+          console.log("New Origin: " + url.origin);
+          var broker = new Broker(url.origin);
+          this.brokers[url.origin] = broker;
+      }
+      else {
+        broker = this.brokers[url.origin];
+      }
+
+      broker.subscribe2(topic,target);
+      return broker;
+    }
+
+    unsubscribe(topic,target) {
+      var url = MyURL(topic);
+      console.log("Unsubscribing " + topic);
+
+      if (!(url.origin in this.brokers))
+      {
+          return null;
+      }
+      else {
+        var broker = this.brokers[url.origin];
+      }
+
+      broker.unsubscribe2(topic,target);
+      return broker;
+    }
+
+    publish(topic,payload,retain=false)
+    {
+      var url = MyURL(topic);
       //console.log(url);
 
       if (!(url.origin in this.brokers))
@@ -168,8 +293,9 @@ class DataHub {
         broker = this.brokers[url.origin];
       }
 
-      broker.subscribe2(topic,target);
+      broker.publish2(topic,payload,retain);
       return broker;
+
     }
 
     GetFirst(){
@@ -231,5 +357,40 @@ function setCookie(name, value, daysToLive) {
         document.cookie = cookie;
     }
 }
+
+
+function MyURL(url){
+
+  if (url.search("mqtt://") == 0) {
+      //mqtt = true;
+      url_obj = copy(new URL(url.replace("mqtt://","wss://")));
+      //console.log(url);
+
+      url_obj.origin = url_obj.origin.replace("wss://","mqtt://");
+      //console.log("origin " + url_obj.origin);
+
+
+  }
+  else
+    url_obj = copy(new URL(url));
+
+  return url_obj;
+}
+
+function copy(obj){
+
+  var copy = {}
+
+  for (var key in obj) {
+    copy[key] = obj[key];
+  }
+
+  return copy;
+}
+
+function LogMessage(message) {
+  console.log("Topic: " + message.topic + " Payload:" + message.payload);
+}
+
 
 window.top.datahub = new DataHub();
